@@ -2,80 +2,91 @@ import it.unibo.alchemist.model.scafi.ScafiIncarnationForAlchemist._
 
 class prova extends AggregateProgram with FieldUtils with StandardSensors with ScafiAlchemistSupport {
 
-  // Conta i round che passano
-  def count() : Int = {
-    rep(0) { n => n+1 }
-  }
-
-  // Vale sempre il primo valore mai assunto dall'argomento.
-  def constant[T](value: => T): T = {
+  def count() = {
+    rep(0) { n => n + 1 }
+  } // Conteggio dei round
+  def constant[T](value: => T) = {
     rep(value) { old => old }
-  }
-
-  // Calcolo di distanze approssimato (gradiente).
-  // isSource: se il device corrente e' una sorgente
-  // metric:   funzione che calcola la distanza dispetto ai vicini del device corrente
-  // returns:  la lunghezza del cammino minimo nella rete verso una sorgente
-  def gradient(isSource: Boolean, metric: => Double): Double = {
+  } // Inizializzazione di valori all'inizio di ogni Round
+  def gradient(isSource: Boolean, metric: => Double) = {
     rep(Double.PositiveInfinity) { distance =>
       mux(isSource){ 0.0 }{ minHood{ nbr{distance} + metric } }
     }
-  }
+  }  // Funzione per il calcolo della stima della distanza
 
-  override def main(): Any = {
+  def numNeighbors() = {
+    sumHood(nbr{1})
+  }                        // Esercizio 1: Calcolare numero dei vicini
+  def maxNeighbors() = {
+    rep(0){x => max(x, numNeighbors())}
+  }                        // Esercizio 2: Calcolare il massimo numero dei vicini avuti dal corrente device
+  def maxNeighborsAll() = {
+    rep(0){x => max(x, maxHood(nbr{maxNeighbors()}))}
+  }                     // Esercizio 3: Calcolare il massimo numero dei vicini mai avuti da un device della rete
+  def minNeighborsCoordinates() = {
+    snd(minHood(nbr{pair(numNeighbors(), getCoordinates())}))
+  }    // Esercizio 4: Calcolare le coordinate del device con il minimo numero di vicini
+  def maxNeighborsCoordinates() = {
+    snd(maxHood(nbr{pair(numNeighbors(), getCoordinates())}))
+  }    // Esercizio 5: Calcolare le coordinate del device con il massimo numero di vicini
+
+  override def main() = {
     node.put("language", "scafi")
-
-    // la sorgente e' il nodo 0 (fermo nel mezzo)
-    val sourceID = 0
+    val sourceID = 0  // Nodo 0: Sorgente del campo
     val isSource = mid == sourceID
 
-    // salvo la stima di distanza e quella esatta
-    node.put("distance", alchemistEnvironment.getDistanceBetweenNodes(alchemistEnvironment.getNodeByID(mid), alchemistEnvironment.getNodeByID(sourceID))) // esatta
-    node.put("gradient", gradient(isSource, nbrRange)) // stima
+    node.put(
+      "distance",
+      alchemistEnvironment.getDistanceBetweenNodes(
+        alchemistEnvironment.getNodeByID(mid),
+        alchemistEnvironment.getNodeByID(sourceID))
+    ) // Calcolo della distanza
+    node.put(
+      "gradient",
+      gradient(isSource, nbrRange)
+    ) // Calcolo della stima della distanza
 
-    // determino un tempo in cui iniziare a muovermi a caso tra 0 e 200
-    val timeToGo = constant(200 * nextRandom())
-    node.put("timeToGo", timeToGo)
+    val timeToGo = constant(10 * nextRandom())
+    node.put(
+      "timeToGo",
+      timeToGo
+    ) // Tempo di inizio del movimento
 
-    // determino un luogo in cui muovermi, se e' il momento di farlo
-    branch(timestamp() < timeToGo){
-      // non e' ancora ora, e non faccio nulla
-    } {
-      // scelgo un obiettivo a caso tra [-4,-2] e [4,2]
-      val target = constant(List(8*nextRandom()-4, 4*nextRandom()-2))
-      node.put("target", target)
-    }
+    branch(timestamp() < timeToGo){ } {
+      val d = getCoordinates()
+      val m = minNeighborsCoordinates()
+      val M = maxNeighborsCoordinates()
 
-    0
+      val x = (d.head + m.head)/2
+      val y = (d(1) + m(1))/2
+      node.put("target", List(x, y))
+    } // Esercizio 6: Effettuare un movimento del device verso device con minimo numero di vicini e lontano dal device con il massimo numero di vicini
+
+    node.put("neighbors", numNeighbors())
+    node.put("maxNeighbors", maxNeighbors())
+    node.put("maxNeighborsAll", maxNeighborsAll())
+    node.put("minNeigh", minNeighborsCoordinates())
+    node.put("maxNeigh", maxNeighborsCoordinates())
   }
 
-  // Crea una coppia
-  def pair[A,B](x : A, y : B) : Tuple2[A,B] = {
+  def pair[A,B](x : A, y : B) = {
     Tuple2(x,y)
-  }
-
-  // Primo elemento di una coppia
-  def fst[A,B](t : Tuple2[A,B]) : A = {
+  }                     // Crea una coppia
+  def fst[A,B](t : (A, B)) = {
     t._1
-  }
-
-  // Secondo elemento di una coppia
-  def snd[A,B](t : Tuple2[A,B]) : B = {
+  }                             // Primo elemento di una coppia
+  def snd[A,B](t : (A, B)) = {
     t._2
-  }
-
-  // Massimo tra due elementi
-  def max[T](x : T, y : T)(implicit ord: Ordering[T]) : T = {
+  }                             // Secondo elemento di una coppia
+  def max[T](x : T, y : T)(implicit ord: Ordering[T]) = {
     ord.max(x, y)
-  }
-
-  // Somma di un campo di numeri
-  def sumHood[T](x : => T)(implicit numEv: Numeric[T]) : T = {
+  }  // Massimo tra due elementi
+  def sumHood[T](x : => T)(implicit numEv: Numeric[T]) = {
     includingSelf.sumHood(x)
-  }
-
-  // Coordinate correnti come lista di due Double
-  def getCoordinates(): List[Double] = {
-    alchemistEnvironment.getPosition(alchemistEnvironment.getNodeByID(mid)).getCartesianCoordinates.toList
-  }
+  } // Somma di un campo di numeri
+  def getCoordinates() = {
+    alchemistEnvironment.getPosition(
+      alchemistEnvironment.getNodeByID(mid)
+    ).getCartesianCoordinates.toList
+  }                      // Coordinate correnti
 }
